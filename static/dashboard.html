@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIVA Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 28px;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .status-online {
+            background: #10b981;
+            color: white;
+        }
+
+        .status-offline {
+            background: #ef4444;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            color: #1f2937;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .command-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .command-input input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .command-input input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .history-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            padding: 12px;
+            border-left: 3px solid #667eea;
+            background: #f9fafb;
+            margin-bottom: 10px;
+            border-radius: 5px;
+        }
+
+        .history-item.error {
+            border-left-color: #ef4444;
+        }
+
+        .history-time {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 5px;
+        }
+
+        .history-command {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 5px;
+        }
+
+        .history-response {
+            color: #4b5563;
+            font-size: 14px;
+        }
+
+        .log-container {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+        }
+
+        .log-info { color: #60a5fa; }
+        .log-warning { color: #fbbf24; }
+        .log-error { color: #f87171; }
+
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AIVA Dashboard</h1>
+            <div id="status" class="status-badge status-offline">Offline</div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Статистика</h2>
+                <div class="stat-value" id="totalCommands">0</div>
+                <div class="stat-label">Всього команд</div>
+                <div style="margin-top: 15px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span style="color: #10b981;">✓ Успішно:</span>
+                        <span id="successCommands" style="font-weight: 600;">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #ef4444;">✗ Помилки:</span>
+                        <span id="failedCommands" style="font-weight: 600;">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>⚡ Продуктивність</h2>
+                <div class="stat-value" id="avgResponseTime">0</div>
+                <div class="stat-label">Середній час відповіді (мс)</div>
+                <div style="margin-top: 15px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #6b7280;">Активні з'єднання:</span>
+                        <span id="activeConnections" style="font-weight: 600;">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🎤 Виконати команду</h2>
+                <div class="command-input">
+                    <input type="text" id="commandInput" placeholder="Введи команду..." />
+                    <button class="btn btn-primary" onclick="executeCommand()">Виконати</button>
+                </div>
+                <div id="commandResult" style="margin-top: 15px; color: #6b7280; font-size: 14px;"></div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>📜 Історія команд</h2>
+                <div class="history-list" id="historyList">
+                    <p style="color: #6b7280; text-align: center; padding: 20px;">Історія порожня</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📋 Логи системи</h2>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry log-info">[INFO] Dashboard завантажено</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectInterval = null;
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                document.getElementById('status').textContent = 'Online';
+                document.getElementById('status').className = 'status-badge status-online pulse';
+                addLog('INFO', 'Підключено до AIVA');
+
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+
+                loadStats();
+                loadHistory();
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                document.getElementById('status').textContent = 'Offline';
+                document.getElementById('status').className = 'status-badge status-offline';
+                addLog('WARNING', 'Втрачено з\'єднання з AIVA');
+
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(() => {
+                        console.log('Attempting to reconnect...');
+                        connectWebSocket();
+                    }, 5000);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                addLog('ERROR', 'Помилка WebSocket');
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            switch (data.type) {
+                case 'command':
+                    addCommandToHistory(data.data);
+                    loadStats();
+                    break;
+                case 'status':
+                    updateStats(data.data);
+                    break;
+                case 'log':
+                    addLog(data.data.level, data.data.message);
+                    break;
+                case 'pong':
+                    console.log('Pong received');
+                    break;
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/dashboard/stats');
+                const stats = await response.json();
+                updateStats(stats);
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        function updateStats(stats) {
+            document.getElementById('totalCommands').textContent = stats.total_commands || 0;
+            document.getElementById('successCommands').textContent = stats.successful_commands || 0;
+            document.getElementById('failedCommands').textContent = stats.failed_commands || 0;
+            document.getElementById('avgResponseTime').textContent = Math.round(stats.avg_response_time_ms || 0);
+            document.getElementById('activeConnections').textContent = stats.active_connections || 0;
+        }
+
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/dashboard/history?limit=20');
+                const history = await response.json();
+                displayHistory(history);
+            } catch (error) {
+                console.error('Error loading history:', error);
+            }
+        }
+
+        function displayHistory(history) {
+            const container = document.getElementById('historyList');
+            if (history.length === 0) {
+                container.innerHTML = '<p style="color: #6b7280; text-align: center; padding: 20px;">Історія порожня</p>';
+                return;
+            }
+
+            container.innerHTML = history.map(item => `
+                <div class="history-item ${item.success ? '' : 'error'}">
+                    <div class="history-time">${new Date(item.timestamp).toLocaleString('uk-UA')}</div>
+                    <div class="history-command">🎤 ${item.command}</div>
+                    <div class="history-response">🤖 ${item.response}</div>
+                </div>
+            `).join('');
+        }
+
+        function addCommandToHistory(command) {
+            const container = document.getElementById('historyList');
+            const item = document.createElement('div');
+            item.className = `history-item ${command.success ? '' : 'error'}`;
+            item.innerHTML = `
+                <div class="history-time">${new Date(command.timestamp).toLocaleString('uk-UA')}</div>
+                <div class="history-command">🎤 ${command.command}</div>
+                <div class="history-response">🤖 ${command.response}</div>
+            `;
+            container.insertBefore(item, container.firstChild);
+        }
+
+        async function executeCommand() {
+            const input = document.getElementById('commandInput');
+            const command = input.value.trim();
+
+            if (!command) return;
+
+            const resultDiv = document.getElementById('commandResult');
+            resultDiv.textContent = '⏳ Виконується...';
+            resultDiv.style.color = '#fbbf24';
+
+            try {
+                const response = await fetch('/api/dashboard/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command })
+                });
+
+                const result = await response.json();
+
+                if (result.ok) {
+                    resultDiv.textContent = `✓ ${result.result.text}`;
+                    resultDiv.style.color = '#10b981';
+                    input.value = '';
+                    loadHistory();
+                    loadStats();
+                } else {
+                    resultDiv.textContent = `✗ ${result.error}`;
+                    resultDiv.style.color = '#ef4444';
+                }
+            } catch (error) {
+                resultDiv.textContent = `✗ Помилка: ${error.message}`;
+                resultDiv.style.color = '#ef4444';
+            }
+        }
+
+        function addLog(level, message) {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${level.toLowerCase()}`;
+            const time = new Date().toLocaleTimeString('uk-UA');
+            entry.textContent = `[${time}] [${level}] ${message}`;
+            container.insertBefore(entry, container.firstChild);
+
+            // Обмежуємо кількість логів
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        // Обробка Enter в полі команди
+        document.getElementById('commandInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                executeCommand();
+            }
+        });
+
+        // Ping кожні 30 секунд
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+
+        // Ініціалізація
+        connectWebSocket();
+        setInterval(loadStats, 10000); // Оновлюємо статистику кожні 10 секунд
+    </script>
+</body>
+</html>

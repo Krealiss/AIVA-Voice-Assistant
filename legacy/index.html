@@ -1,0 +1,337 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIVA - AI Core Interface</title>
+    <style>
+        :root {
+            --bg-dark: #121212;
+            --bg-panel: #1e1e24;
+            --primary-accent: #00d2ff;
+            --text-main: #e0e0e0;
+            --text-muted: #888888;
+            --badge-intent: #2b3a55;
+            --badge-plugin: #234e3d;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Consolas', 'Courier New', monospace, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        /* Sidebar - Plugin Manager */
+        .sidebar {
+            width: 300px;
+            background-color: var(--bg-panel);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #333;
+        }
+
+        .header {
+            font-size: 26px;
+            font-weight: bold;
+            color: var(--primary-accent);
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .plugin-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            font-size: 14px;
+        }
+        /* Toggle Switch */
+        .toggle {
+            width: 36px;
+            height: 18px;
+            background-color: #333;
+            border-radius: 9px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+            .toggle.active {
+                background-color: var(--primary-accent);
+            }
+
+            .toggle::after {
+                content: '';
+                position: absolute;
+                left: 2px;
+                top: 2px;
+                width: 14px;
+                height: 14px;
+                background-color: #fff;
+                border-radius: 50%;
+                transition: transform 0.3s;
+            }
+
+            .toggle.active::after {
+                transform: translateX(18px);
+            }
+
+        /* Main Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-container {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 15px 20px;
+            border-radius: 12px;
+            font-size: 15px;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .user-msg {
+            background-color: #2a2a35;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+            .user-msg::before {
+                content: 'User (Text)';
+                position: absolute;
+                top: -18px;
+                right: 0;
+                font-size: 11px;
+                color: var(--text-muted);
+            }
+
+        .aiva-msg {
+            background-color: rgba(0, 210, 255, 0.05);
+            border: 1px solid rgba(0, 210, 255, 0.2);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .badges {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'Consolas', monospace;
+            letter-spacing: 0.5px;
+        }
+
+            .badge.intent {
+                background-color: var(--badge-intent);
+                color: #8bb4f7;
+            }
+
+            .badge.plugin {
+                background-color: var(--badge-plugin);
+                color: #81c995;
+            }
+
+        /* Input Area */
+        .input-area {
+            height: 100px;
+            background-color: var(--bg-panel);
+            border-top: 1px solid #333;
+            display: flex;
+            align-items: center;
+            padding: 0 30px;
+            gap: 15px;
+        }
+
+        .text-input {
+            flex: 1;
+            height: 50px;
+            background-color: #121212;
+            border: 1px solid #333;
+            border-radius: 25px;
+            padding: 0 25px;
+            color: var(--text-main);
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+            .text-input:focus {
+                border-color: var(--primary-accent);
+            }
+
+        .action-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.3s;
+        }
+
+        .send-btn {
+            background-color: #333;
+        }
+
+            .send-btn svg {
+                fill: var(--text-main);
+                width: 20px;
+            }
+
+            .send-btn:hover {
+                background-color: #444;
+            }
+
+        .mic-btn {
+            background-color: var(--primary-accent);
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
+        }
+
+            .mic-btn svg {
+                fill: #000;
+                width: 22px;
+            }
+
+            .mic-btn.recording {
+                background-color: #ff4757;
+                box-shadow: 0 0 20px rgba(255, 71, 87, 0.6);
+                animation: pulse 1.5s infinite;
+            }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.08);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="header">AIVA</div>
+        <div class="subtitle">AI Voice & Text Assistant Core</div>
+
+        <div class="section-title">Ядро Обробки (LLM/NLP)</div>
+        <div class="plugin-item">
+            Локальна LLM (Inference)
+            <div class="toggle active"></div>
+        </div>
+        <div class="plugin-item">
+            Whisper STT (Голос)
+            <div class="toggle active"></div>
+        </div>
+
+        <div class="section-title" style="margin-top: 30px;">Менеджер Плагінів (Router)</div>
+        <div class="plugin-item">
+            System OS Control
+            <div class="toggle active"></div>
+        </div>
+        <div class="plugin-item">
+            Web Scraping / Search
+            <div class="toggle active"></div>
+        </div>
+        <div class="plugin-item">
+            File System Operations
+            <div class="toggle active"></div>
+        </div>
+        <div class="plugin-item">
+            External API calls
+            <div class="toggle"></div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="chat-container" id="chat">
+
+            <div class="message user-msg">Знайди інформацію про останні досягнення в NLP архітектурах.</div>
+
+            <div class="message aiva-msg">
+                <div class="badges">
+                    <span class="badge intent">[Intent: Info_Retrieval]</span>
+                    <span class="badge plugin">[Plugin: Web_Scraping]</span>
+                </div>
+                Виконую пошук за запитом "latest advancements in NLP architectures". Знайдено 12 релевантних статей на arXiv. Основний тренд: оптимізація Mixture of Experts (MoE) та квантування локальних моделей.
+            </div>
+
+            <div class="message user-msg" style="margin-top: 15px;">Мені треба щось записати, відкрий блокнот або будь-який редактор.</div>
+
+            <div class="message aiva-msg">
+                <div class="badges">
+                    <span class="badge intent">[Intent: System_Execution]</span>
+                    <span class="badge plugin">[Plugin: System_OS_Control]</span>
+                </div>
+                Намір розпізнано. Ініціюю запуск процесу notepad.exe через модуль OS Control. Готово.
+            </div>
+
+        </div>
+
+        <div class="input-area">
+            <input type="text" class="text-input" placeholder="Введіть текстову команду...">
+            <button class="action-btn send-btn">
+                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
+            </button>
+            <button class="action-btn mic-btn" id="micBtn" onclick="toggleMic()">
+                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z" /></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        function toggleMic() {
+            const btn = document.getElementById('micBtn');
+            btn.classList.toggle('recording');
+        }
+    </script>
+</body>
+</html>

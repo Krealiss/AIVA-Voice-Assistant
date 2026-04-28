@@ -1,0 +1,75 @@
+﻿# ============================================
+# AIVA 2.0 - Requirements
+# ============================================
+
+# === Core (Required) ===
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# === NLP & Fuzzy Matching ===
+pymorphy2>=0.9.1
+pymorphy2-dicts-uk>=2.4.1
+rapidfuzz>=3.5.0
+
+# === Database ===
+# SQLite is built-in with Python
+
+# === Testing ===
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# === Audio & Voice (Optional - for full version) ===
+# Uncomment if you need voice features
+# pyaudio>=0.2.14
+# pygame>=2.5.0
+# faster-whisper>=0.10.0
+# pydub>=0.25.1
+# edge-tts>=6.1.0
+
+# === AI & Search (Optional) ===
+# Uncomment if you need AI features
+# Note: duckduckgo-search is deprecated, use ddgs instead
+# ddgs>=0.1.0
+
+# === Smart Home (Optional) ===
+# Uncomment if you have Tuya devices
+# tuya-iot-py-sdk>=0.6.6
+
+# === Telegram Bot (Optional) ===
+# Uncomment if you need Telegram integration
+# pyTelegramBotAPI>=4.14.0
+
+# === Vision & Screen Understanding (Optional) ===
+# Uncomment if you need vision features
+# Pillow>=10.1.0
+# pytesseract>=0.3.10
+# anthropic>=0.7.0
+
+# === Windows-specific (Optional) ===
+# Uncomment on Windows for system control
+# pywin32>=306
+# winshell>=0.6
+# comtypes>=1.2.0
+
+# === Additional (Optional) ===
+# numpy>=1.24.0  # For audio processing
+# vosk>=0.3.45   # Alternative ASR (offline)
+
+# ============================================
+# Installation Instructions:
+# ============================================
+#
+# Minimal (Dashboard only):
+#   pip install fastapi uvicorn pydantic python-dotenv requests
+#   pip install pymorphy2 pymorphy2-dicts-uk rapidfuzz
+#   pip install pytest pytest-asyncio pytest-cov
+#
+# Full version (with voice):
+#   pip install -r requirements.txt
+#   # Then uncomment needed optional dependencies
+#
+# ============================================
