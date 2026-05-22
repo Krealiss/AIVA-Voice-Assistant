@@ -52,106 +52,103 @@ class FeedbackSystem:
 
     def _init_db(self):
         """Ініціалізація БД"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
 
-        # Таблиця feedback
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                feedback_type TEXT NOT NULL,
-                command TEXT NOT NULL,
-                response TEXT NOT NULL,
-                user_input TEXT NOT NULL,
-                rating INTEGER,
-                comment TEXT,
-                timestamp TEXT NOT NULL,
-                processed INTEGER DEFAULT 0,
-                applied INTEGER DEFAULT 0
-            )
-        """)
+            # Таблиця feedback
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feedback_type TEXT NOT NULL,
+                    command TEXT NOT NULL,
+                    response TEXT NOT NULL,
+                    user_input TEXT NOT NULL,
+                    rating INTEGER,
+                    comment TEXT,
+                    timestamp TEXT NOT NULL,
+                    processed INTEGER DEFAULT 0,
+                    applied INTEGER DEFAULT 0
+                )
+            """)
 
-        # Таблиця corrections
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS corrections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                original_command TEXT NOT NULL,
-                original_response TEXT NOT NULL,
-                corrected_response TEXT NOT NULL,
-                correction_type TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                applied INTEGER DEFAULT 0
-            )
-        """)
+            # Таблиця corrections
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS corrections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    original_command TEXT NOT NULL,
+                    original_response TEXT NOT NULL,
+                    corrected_response TEXT NOT NULL,
+                    correction_type TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    applied INTEGER DEFAULT 0
+                )
+            """)
 
-        # Таблиця learned improvements
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS improvements (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                improvement_type TEXT NOT NULL,
-                description TEXT NOT NULL,
-                before_value TEXT,
-                after_value TEXT,
-                confidence REAL NOT NULL,
-                applied_at TEXT NOT NULL,
-                source_feedback_id INTEGER,
-                FOREIGN KEY (source_feedback_id) REFERENCES feedback(id)
-            )
-        """)
+            # Таблиця learned improvements
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS improvements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    improvement_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    before_value TEXT,
+                    after_value TEXT,
+                    confidence REAL NOT NULL,
+                    applied_at TEXT NOT NULL,
+                    source_feedback_id INTEGER,
+                    FOREIGN KEY (source_feedback_id) REFERENCES feedback(id)
+                )
+            """)
 
-        # Індекси
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback(feedback_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_rating ON feedback(rating)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_processed ON feedback(processed)")
+            # Індекси
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback(feedback_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rating ON feedback(rating)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_processed ON feedback(processed)")
 
-        conn.commit()
-        conn.close()
+            conn.commit()
         logger.info("Feedback System DB initialized")
 
     def submit_feedback(self, feedback: Feedback) -> int:
         """Подати зворотний зв'язок"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        cur.execute("""
-            INSERT INTO feedback
-            (feedback_type, command, response, user_input, rating, comment, timestamp, processed, applied)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            feedback.feedback_type,
-            feedback.command,
-            feedback.response,
-            feedback.user_input,
-            feedback.rating,
-            feedback.comment,
-            feedback.timestamp.isoformat(),
-            1 if feedback.processed else 0,
-            1 if feedback.applied else 0
-        ))
+            cur.execute("""
+                INSERT INTO feedback
+                (feedback_type, command, response, user_input, rating, comment, timestamp, processed, applied)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                feedback.feedback_type,
+                feedback.command,
+                feedback.response,
+                feedback.user_input,
+                feedback.rating,
+                feedback.comment,
+                feedback.timestamp.isoformat(),
+                1 if feedback.processed else 0,
+                1 if feedback.applied else 0
+            ))
 
-        feedback_id = cur.lastrowid
-        conn.commit()
-        conn.close()
+            feedback_id = cur.lastrowid
+            conn.commit()
 
         logger.info(f"Feedback submitted: {feedback.feedback_type} for '{feedback.command}'")
         return feedback_id
 
     def submit_correction(self, correction: Correction):
         """Подати виправлення"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT INTO corrections
-            (original_command, original_response, corrected_response, correction_type, timestamp)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            correction.original_command,
-            correction.original_response,
-            correction.corrected_response,
-            correction.correction_type,
-            correction.timestamp.isoformat()
-        ))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO corrections
+                (original_command, original_response, corrected_response, correction_type, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                correction.original_command,
+                correction.original_response,
+                correction.corrected_response,
+                correction.correction_type,
+                correction.timestamp.isoformat()
+            ))
+            conn.commit()
 
         logger.info(f"Correction submitted for '{correction.original_command}'")
 
@@ -207,15 +204,13 @@ class FeedbackSystem:
         """Середня оцінка за останні N днів"""
         since = (datetime.now() - timedelta(days=days)).isoformat()
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        result = cur.execute("""
-            SELECT AVG(rating) FROM feedback
-            WHERE rating IS NOT NULL AND timestamp > ?
-        """, (since,)).fetchone()
-
-        conn.close()
+            result = cur.execute("""
+                SELECT AVG(rating) FROM feedback
+                WHERE rating IS NOT NULL AND timestamp > ?
+            """, (since,)).fetchone()
 
         return result[0] if result[0] else 0.0
 
@@ -223,36 +218,32 @@ class FeedbackSystem:
         """Розподіл оцінок"""
         since = (datetime.now() - timedelta(days=days)).isoformat()
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT rating, COUNT(*) as count
-            FROM feedback
-            WHERE rating IS NOT NULL AND timestamp > ?
-            GROUP BY rating
-        """, (since,)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT rating, COUNT(*) as count
+                FROM feedback
+                WHERE rating IS NOT NULL AND timestamp > ?
+                GROUP BY rating
+            """, (since,)).fetchall()
 
         return {rating: count for rating, count in rows}
 
     def get_low_rated_commands(self, threshold: int = 2, limit: int = 10) -> List[Dict]:
         """Команди з низькими оцінками"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT command, AVG(rating) as avg_rating, COUNT(*) as count
-            FROM feedback
-            WHERE rating IS NOT NULL AND rating <= ?
-            GROUP BY command
-            HAVING count >= 2
-            ORDER BY avg_rating ASC, count DESC
-            LIMIT ?
-        """, (threshold, limit)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT command, AVG(rating) as avg_rating, COUNT(*) as count
+                FROM feedback
+                WHERE rating IS NOT NULL AND rating <= ?
+                GROUP BY command
+                HAVING count >= 2
+                ORDER BY avg_rating ASC, count DESC
+                LIMIT ?
+            """, (threshold, limit)).fetchall()
 
         return [
             {"command": cmd, "avg_rating": avg, "count": cnt}
@@ -261,18 +252,16 @@ class FeedbackSystem:
 
     def get_unprocessed_feedback(self, limit: int = 50) -> List[Feedback]:
         """Отримати необроблений feedback"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT id, feedback_type, command, response, user_input, rating, comment, timestamp, processed, applied
-            FROM feedback
-            WHERE processed = 0
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT id, feedback_type, command, response, user_input, rating, comment, timestamp, processed, applied
+                FROM feedback
+                WHERE processed = 0
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
 
         feedbacks = []
         for row in rows:
@@ -293,41 +282,38 @@ class FeedbackSystem:
 
     def mark_as_processed(self, feedback_id: int, applied: bool = False):
         """Позначити feedback як оброблений"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            UPDATE feedback
-            SET processed = 1, applied = ?
-            WHERE id = ?
-        """, (1 if applied else 0, feedback_id))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE feedback
+                SET processed = 1, applied = ?
+                WHERE id = ?
+            """, (1 if applied else 0, feedback_id))
+            conn.commit()
 
     def analyze_corrections(self) -> Dict:
         """Аналіз виправлень для виявлення патернів помилок"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        # Загальна кількість
-        total = cur.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
+            # Загальна кількість
+            total = cur.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
 
-        # По типах
-        by_type = cur.execute("""
-            SELECT correction_type, COUNT(*) as count
-            FROM corrections
-            GROUP BY correction_type
-        """).fetchall()
+            # По типах
+            by_type = cur.execute("""
+                SELECT correction_type, COUNT(*) as count
+                FROM corrections
+                GROUP BY correction_type
+            """).fetchall()
 
-        # Найчастіші помилки
-        common_errors = cur.execute("""
-            SELECT original_command, COUNT(*) as count
-            FROM corrections
-            GROUP BY original_command
-            HAVING count >= 2
-            ORDER BY count DESC
-            LIMIT 10
-        """).fetchall()
-
-        conn.close()
+            # Найчастіші помилки
+            common_errors = cur.execute("""
+                SELECT original_command, COUNT(*) as count
+                FROM corrections
+                GROUP BY original_command
+                HAVING count >= 2
+                ORDER BY count DESC
+                LIMIT 10
+            """).fetchall()
 
         return {
             "total_corrections": total,
@@ -369,30 +355,28 @@ class FeedbackSystem:
 
     def get_feedback_stats(self) -> Dict:
         """Статистика feedback для dashboard"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        # Загальна статистика
-        total = cur.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
-        processed = cur.execute("SELECT COUNT(*) FROM feedback WHERE processed = 1").fetchone()[0]
-        avg_rating = cur.execute("SELECT AVG(rating) FROM feedback WHERE rating IS NOT NULL").fetchone()[0]
+            # Загальна статистика
+            total = cur.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
+            processed = cur.execute("SELECT COUNT(*) FROM feedback WHERE processed = 1").fetchone()[0]
+            avg_rating = cur.execute("SELECT AVG(rating) FROM feedback WHERE rating IS NOT NULL").fetchone()[0]
 
-        # По типах
-        by_type = cur.execute("""
-            SELECT feedback_type, COUNT(*) as count
-            FROM feedback
-            GROUP BY feedback_type
-        """).fetchall()
+            # По типах
+            by_type = cur.execute("""
+                SELECT feedback_type, COUNT(*) as count
+                FROM feedback
+                GROUP BY feedback_type
+            """).fetchall()
 
-        # Останні відгуки
-        recent = cur.execute("""
-            SELECT feedback_type, command, rating, comment, timestamp
-            FROM feedback
-            ORDER BY timestamp DESC
-            LIMIT 10
-        """).fetchall()
-
-        conn.close()
+            # Останні відгуки
+            recent = cur.execute("""
+                SELECT feedback_type, command, rating, comment, timestamp
+                FROM feedback
+                ORDER BY timestamp DESC
+                LIMIT 10
+            """).fetchall()
 
         return {
             "total_feedback": total,
@@ -416,16 +400,14 @@ class FeedbackSystem:
 
     def export_feedback(self, output_file: str = "feedback_export.json"):
         """Експорт feedback для аналізу"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT feedback_type, command, response, user_input, rating, comment, timestamp
-            FROM feedback
-            ORDER BY timestamp DESC
-        """).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT feedback_type, command, response, user_input, rating, comment, timestamp
+                FROM feedback
+                ORDER BY timestamp DESC
+            """).fetchall()
 
         data = [
             {

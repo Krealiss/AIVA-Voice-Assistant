@@ -24,6 +24,9 @@ class Message:
     content: str
     timestamp: datetime
     metadata: Optional[Dict[str, Any]] = None
+    intent: Optional[str] = None  # NLU: розпізнана інтенція
+    entities: Optional[Dict[str, Any]] = None  # NLU: витягнуті entities
+    confidence: Optional[float] = None  # NLU: впевненість розпізнавання
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
@@ -88,6 +91,9 @@ class ContextManager:
                     content TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     metadata_json TEXT DEFAULT '{}',
+                    intent TEXT,
+                    entities_json TEXT DEFAULT '{}',
+                    confidence REAL,
                     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
                 )
             """)
@@ -235,9 +241,12 @@ class ContextManager:
         session_id: str,
         role: str,
         content: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        intent: Optional[str] = None,
+        entities: Optional[Dict[str, Any]] = None,
+        confidence: Optional[float] = None
     ) -> Message:
-        """Add message to session"""
+        """Add message to session with NLU data"""
         now = datetime.now()
         message_id = f"msg_{session_id}_{int(now.timestamp() * 1000)}"
 
@@ -247,29 +256,36 @@ class ContextManager:
             role=role,
             content=content,
             timestamp=now,
-            metadata=metadata
+            metadata=metadata,
+            intent=intent,
+            entities=entities,
+            confidence=confidence
         )
 
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     INSERT INTO messages
-                    (message_id, session_id, role, content, timestamp, metadata_json)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (message_id, session_id, role, content, timestamp, metadata_json,
+                     intent, entities_json, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     message.message_id,
                     message.session_id,
                     message.role,
                     message.content,
                     message.timestamp.isoformat(),
-                    json.dumps(message.metadata or {})
+                    json.dumps(message.metadata or {}),
+                    message.intent,
+                    json.dumps(message.entities or {}),
+                    message.confidence
                 ))
                 conn.commit()
 
             # Update session activity
             self.update_session_activity(session_id)
 
-            logger.debug(f"Added message to session {session_id}: {role}")
+            logger.debug(f"Added message to session {session_id}: {role}, intent={intent}")
             return message
         except Exception as e:
             logger.error(f"Error adding message: {e}")
@@ -300,13 +316,32 @@ class ContextManager:
 
                 messages = []
                 for row in cursor.fetchall():
+                    # sqlite3.Row не має .get(), використовуємо try/except
+                    try:
+                        intent = row["intent"]
+                    except (KeyError, IndexError):
+                        intent = None
+
+                    try:
+                        entities_json = row["entities_json"]
+                    except (KeyError, IndexError):
+                        entities_json = "{}"
+
+                    try:
+                        confidence = row["confidence"]
+                    except (KeyError, IndexError):
+                        confidence = None
+
                     messages.append(Message(
                         message_id=row["message_id"],
                         session_id=row["session_id"],
                         role=row["role"],
                         content=row["content"],
                         timestamp=datetime.fromisoformat(row["timestamp"]),
-                        metadata=json.loads(row["metadata_json"])
+                        metadata=json.loads(row["metadata_json"]),
+                        intent=intent,
+                        entities=json.loads(entities_json),
+                        confidence=confidence
                     ))
                 return messages
         except Exception as e:
@@ -379,6 +414,163 @@ class ContextManager:
             logger.info(f"Cleaned up sessions older than {days} days")
         except Exception as e:
             logger.error(f"Error cleaning up old sessions: {e}")
+
+    # ============= NLU-specific methods =============
+
+    def get_last_intent(self, session_id: str) -> Optional[str]:
+        """Get last recognized intent from session"""
+        messages = self.get_context_window(session_id)
+        for msg in reversed(messages):
+            if msg.role == "user" and msg.intent:
+                return msg.intent
+        return None
+
+    def get_active_entities(self, session_id: str) -> Dict[str, Any]:
+        """Get all active entities from recent context"""
+        messages = self.get_context_window(session_id)
+        entities = {}
+
+        # Збираємо entities з останніх повідомлень (новіші перезаписують старіші)
+        for msg in messages:
+            if msg.role == "user" and msg.entities:
+                entities.update(msg.entities)
+
+        return entities
+
+    def resolve_entity(
+        self,
+        session_id: str,
+        entity_type: str,
+        current_entities: Dict[str, Any]
+    ) -> Optional[Any]:
+        """
+        Resolve entity from context if not in current entities
+
+        Args:
+            session_id: Session ID
+            entity_type: Type of entity (app, city, device, etc.)
+            current_entities: Currently extracted entities
+
+        Returns:
+            Entity value or None
+        """
+        # Спочатку перевіряємо поточні entities
+        if entity_type in current_entities:
+            return current_entities[entity_type]
+
+        # Шукаємо в контексті
+        active_entities = self.get_active_entities(session_id)
+        if entity_type in active_entities:
+            logger.info(f"Resolved '{entity_type}' from context: {active_entities[entity_type]}")
+            return active_entities[entity_type]
+
+        return None
+
+    def get_recent_intents(self, session_id: str, count: int = 5) -> List[str]:
+        """Get list of recent intents"""
+        messages = self.get_context_window(session_id)
+        intents = []
+
+        for msg in reversed(messages):
+            if msg.role == "user" and msg.intent:
+                intents.append(msg.intent)
+                if len(intents) >= count:
+                    break
+
+        return list(reversed(intents))
+
+    def infer_intent_from_context(self, session_id: str, current_text: str) -> Optional[str]:
+        """
+        Infer intent based on conversation context
+
+        Example:
+        - User: "запусти chrome"
+        - System: "Запускаю Chrome"
+        - User: "і firefox теж" <- no explicit command, but context suggests "run"
+        """
+        last_intent = self.get_last_intent(session_id)
+        if not last_intent:
+            return None
+
+        # Ключові слова продовження
+        continuation_markers = [
+            "теж", "також", "ще", "і", "та", "плюс", "додатково",
+            "too", "also", "and", "plus"
+        ]
+
+        words = set(current_text.lower().split())
+
+        if any(marker in words for marker in continuation_markers):
+            logger.info(f"Inferred intent '{last_intent}' from context")
+            return last_intent
+
+        return None
+
+    def get_conversation_summary(self, session_id: str, count: int = 3) -> str:
+        """Generate conversation summary for LLM"""
+        messages = self.get_context_window(session_id)
+        if not messages:
+            return "Нова розмова"
+
+        recent = messages[-count:]
+        summary_parts = []
+
+        for msg in recent:
+            if msg.role == "user":
+                intent_info = f" (intent: {msg.intent})" if msg.intent else ""
+                summary_parts.append(f"User: '{msg.content}'{intent_info}")
+            else:
+                summary_parts.append(f"Assistant: '{msg.content[:50]}...'")
+
+        return " | ".join(summary_parts)
+
+    def detect_pattern(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Detect patterns in conversation history"""
+        messages = self.get_context_window(session_id)
+        if len(messages) < 3:
+            return None
+
+        user_messages = [m for m in messages if m.role == "user" and m.intent]
+        if len(user_messages) < 3:
+            return None
+
+        recent = user_messages[-5:]
+
+        # Pattern 1: Repeated intent
+        intents = [m.intent for m in recent]
+        if len(set(intents)) == 1:
+            return {
+                "type": "repeated_intent",
+                "intent": intents[0],
+                "count": len(intents),
+                "suggestion": f"Схоже ви часто використовуєте '{intents[0]}'"
+            }
+
+        # Pattern 2: Sequence of actions
+        if len(recent) >= 3:
+            sequence = " -> ".join([m.intent for m in recent[-3:]])
+            return {
+                "type": "sequence",
+                "sequence": sequence,
+                "suggestion": "Виявлено послідовність дій"
+            }
+
+        return None
+
+    def get_nlu_context(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get full NLU context for intent analysis
+
+        Returns:
+            Dictionary with context information for NLU engine
+        """
+        return {
+            "last_intent": self.get_last_intent(session_id),
+            "active_entities": self.get_active_entities(session_id),
+            "recent_intents": self.get_recent_intents(session_id, 5),
+            "conversation_summary": self.get_conversation_summary(session_id),
+            "pattern": self.detect_pattern(session_id)
+        }
 
 
 # Global instance

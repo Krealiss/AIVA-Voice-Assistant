@@ -44,96 +44,92 @@ class AnalyticsEngine:
 
     def _init_db(self):
         """Ініціалізація БД для аналітики"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
 
-        # Таблиця метрик команд
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS command_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                command TEXT NOT NULL,
-                intent_type TEXT,
-                success INTEGER NOT NULL,
-                duration_ms REAL,
-                timestamp TEXT NOT NULL,
-                source TEXT NOT NULL,
-                user_id TEXT,
-                error TEXT
-            )
-        """)
+            # Таблиця метрик команд
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS command_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    command TEXT NOT NULL,
+                    intent_type TEXT,
+                    success INTEGER NOT NULL,
+                    duration_ms REAL,
+                    timestamp TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    user_id TEXT,
+                    error TEXT
+                )
+            """)
 
-        # Таблиця виявлених патернів
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS usage_patterns (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pattern_type TEXT NOT NULL,
-                description TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                occurrences INTEGER NOT NULL,
-                last_seen TEXT NOT NULL,
-                metadata TEXT,
-                active INTEGER DEFAULT 1
-            )
-        """)
+            # Таблиця виявлених патернів
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS usage_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    occurrences INTEGER NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    metadata TEXT,
+                    active INTEGER DEFAULT 1
+                )
+            """)
 
-        # Індекси для швидкого пошуку
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON command_metrics(timestamp)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_intent ON command_metrics(intent_type)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_success ON command_metrics(success)")
+            # Індекси для швидкого пошуку
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON command_metrics(timestamp)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_intent ON command_metrics(intent_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_success ON command_metrics(success)")
 
-        conn.commit()
-        conn.close()
+            conn.commit()
         logger.info("Analytics DB initialized")
 
     def track_command(self, metric: CommandMetric):
         """Записати метрику виконання команди"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT INTO command_metrics
-            (command, intent_type, success, duration_ms, timestamp, source, user_id, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            metric.command,
-            metric.intent_type,
-            1 if metric.success else 0,
-            metric.duration_ms,
-            metric.timestamp.isoformat(),
-            metric.source,
-            metric.user_id,
-            metric.error
-        ))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO command_metrics
+                (command, intent_type, success, duration_ms, timestamp, source, user_id, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                metric.command,
+                metric.intent_type,
+                1 if metric.success else 0,
+                metric.duration_ms,
+                metric.timestamp.isoformat(),
+                metric.source,
+                metric.user_id,
+                metric.error
+            ))
+            conn.commit()
 
     def get_success_rate(self, hours: int = 24) -> Dict:
         """Отримати success rate за останні N годин"""
         since = datetime.now() - timedelta(hours=hours)
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        # Загальна статистика
-        total = cur.execute(
-            "SELECT COUNT(*) FROM command_metrics WHERE timestamp > ?",
-            (since.isoformat(),)
-        ).fetchone()[0]
+            # Загальна статистика
+            total = cur.execute(
+                "SELECT COUNT(*) FROM command_metrics WHERE timestamp > ?",
+                (since.isoformat(),)
+            ).fetchone()[0]
 
-        successful = cur.execute(
-            "SELECT COUNT(*) FROM command_metrics WHERE timestamp > ? AND success = 1",
-            (since.isoformat(),)
-        ).fetchone()[0]
+            successful = cur.execute(
+                "SELECT COUNT(*) FROM command_metrics WHERE timestamp > ? AND success = 1",
+                (since.isoformat(),)
+            ).fetchone()[0]
 
-        # По типах intent
-        by_intent = cur.execute("""
-            SELECT intent_type,
-                   COUNT(*) as total,
-                   SUM(success) as successful
-            FROM command_metrics
-            WHERE timestamp > ?
-            GROUP BY intent_type
-        """, (since.isoformat(),)).fetchall()
-
-        conn.close()
+            # По типах intent
+            by_intent = cur.execute("""
+                SELECT intent_type,
+                       COUNT(*) as total,
+                       SUM(success) as successful
+                FROM command_metrics
+                WHERE timestamp > ?
+                GROUP BY intent_type
+            """, (since.isoformat(),)).fetchall()
 
         return {
             "total_commands": total,
@@ -154,28 +150,26 @@ class AnalyticsEngine:
         """Статистика продуктивності"""
         since = datetime.now() - timedelta(hours=hours)
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        stats = cur.execute("""
-            SELECT
-                AVG(duration_ms) as avg_duration,
-                MIN(duration_ms) as min_duration,
-                MAX(duration_ms) as max_duration,
-                COUNT(*) as total
-            FROM command_metrics
-            WHERE timestamp > ? AND duration_ms IS NOT NULL
-        """, (since.isoformat(),)).fetchone()
+            stats = cur.execute("""
+                SELECT
+                    AVG(duration_ms) as avg_duration,
+                    MIN(duration_ms) as min_duration,
+                    MAX(duration_ms) as max_duration,
+                    COUNT(*) as total
+                FROM command_metrics
+                WHERE timestamp > ? AND duration_ms IS NOT NULL
+            """, (since.isoformat(),)).fetchone()
 
-        # По типах intent
-        by_intent = cur.execute("""
-            SELECT intent_type, AVG(duration_ms) as avg_duration
-            FROM command_metrics
-            WHERE timestamp > ? AND duration_ms IS NOT NULL
-            GROUP BY intent_type
-        """, (since.isoformat(),)).fetchall()
-
-        conn.close()
+            # По типах intent
+            by_intent = cur.execute("""
+                SELECT intent_type, AVG(duration_ms) as avg_duration
+                FROM command_metrics
+                WHERE timestamp > ? AND duration_ms IS NOT NULL
+                GROUP BY intent_type
+            """, (since.isoformat(),)).fetchall()
 
         return {
             "avg_duration_ms": stats[0] or 0,
@@ -189,34 +183,31 @@ class AnalyticsEngine:
         """Топ команд за останній тиждень"""
         since = datetime.now() - timedelta(hours=hours)
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        top = cur.execute("""
-            SELECT command, COUNT(*) as count
-            FROM command_metrics
-            WHERE timestamp > ?
-            GROUP BY command
-            ORDER BY count DESC
-            LIMIT ?
-        """, (since.isoformat(), limit)).fetchall()
+            top = cur.execute("""
+                SELECT command, COUNT(*) as count
+                FROM command_metrics
+                WHERE timestamp > ?
+                GROUP BY command
+                ORDER BY count DESC
+                LIMIT ?
+            """, (since.isoformat(), limit)).fetchall()
 
-        conn.close()
         return top
 
     def get_usage_by_hour(self, days: int = 7) -> Dict[int, int]:
         """Розподіл використання по годинах доби"""
         since = datetime.now() - timedelta(days=days)
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT timestamp FROM command_metrics
-            WHERE timestamp > ?
-        """, (since.isoformat(),)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT timestamp FROM command_metrics
+                WHERE timestamp > ?
+            """, (since.isoformat(),)).fetchall()
 
         # Підрахунок по годинах
         hour_counts = defaultdict(int)
@@ -230,15 +221,13 @@ class AnalyticsEngine:
         """Розподіл використання по днях тижня"""
         since = datetime.now() - timedelta(days=days)
 
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT timestamp FROM command_metrics
-            WHERE timestamp > ?
-        """, (since.isoformat(),)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT timestamp FROM command_metrics
+                WHERE timestamp > ?
+            """, (since.isoformat(),)).fetchall()
 
         # Підрахунок по днях
         day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -277,18 +266,16 @@ class AnalyticsEngine:
 
     def detect_sequence_patterns(self, min_occurrences: int = 2) -> List[UsagePattern]:
         """Виявлення послідовностей команд (що йде після чого)"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        # Отримуємо останні 100 команд
-        rows = cur.execute("""
-            SELECT command, timestamp
-            FROM command_metrics
-            ORDER BY timestamp DESC
-            LIMIT 100
-        """).fetchall()
-
-        conn.close()
+            # Отримуємо останні 100 команд
+            rows = cur.execute("""
+                SELECT command, timestamp
+                FROM command_metrics
+                ORDER BY timestamp DESC
+                LIMIT 100
+            """).fetchall()
 
         if len(rows) < 2:
             return []
@@ -345,33 +332,31 @@ class AnalyticsEngine:
 
     def save_pattern(self, pattern: UsagePattern):
         """Зберегти виявлений патерн"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT INTO usage_patterns
-            (pattern_type, description, confidence, occurrences, last_seen, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            pattern.pattern_type,
-            pattern.description,
-            pattern.confidence,
-            pattern.occurrences,
-            pattern.last_seen.isoformat(),
-            json.dumps(pattern.metadata)
-        ))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO usage_patterns
+                (pattern_type, description, confidence, occurrences, last_seen, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                pattern.pattern_type,
+                pattern.description,
+                pattern.confidence,
+                pattern.occurrences,
+                pattern.last_seen.isoformat(),
+                json.dumps(pattern.metadata)
+            ))
+            conn.commit()
 
     def get_all_patterns(self, active_only: bool = True) -> List[UsagePattern]:
         """Отримати всі збережені патерни"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        query = "SELECT pattern_type, description, confidence, occurrences, last_seen, metadata FROM usage_patterns"
-        if active_only:
-            query += " WHERE active = 1"
+            query = "SELECT pattern_type, description, confidence, occurrences, last_seen, metadata FROM usage_patterns"
+            if active_only:
+                query += " WHERE active = 1"
 
-        rows = cur.execute(query).fetchall()
-        conn.close()
+            rows = cur.execute(query).fetchall()
 
         patterns = []
         for row in rows:

@@ -87,8 +87,17 @@ except ImportError as e:
     logger.warning(f"Context system not available: {e}")
     CONTEXT_ENABLED = False
 
+# NLU Engine (Hybrid intent recognition)
+try:
+    from nlu_engine import nlu_engine, IntentResult
+    NLU_ENABLED = True
+    logger.info("NLU Engine enabled (Hybrid mode)")
+except ImportError as e:
+    logger.warning(f"NLU Engine not available: {e}")
+    NLU_ENABLED = False
+
 DB_PATH = config.DB_PATH
-VERSION = "1.0.0 (Learning Edition)"
+VERSION = "2.1.0 (Hybrid NLU Edition)"
 
 # Ініціалізація оптимізованого менеджера БД
 db_manager = DatabaseManager(DB_PATH)
@@ -105,6 +114,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AIVA Server", lifespan=lifespan)
 morph = pymorphy2.MorphAnalyzer(lang='uk')
+
+# Middleware для закриття з'єднань БД після кожного запиту
+@app.middleware("http")
+async def close_db_connections(request, call_next):
+    response = await call_next(request)
+    # Закриваємо з'єднання в db_manager
+    try:
+        db_manager.close()
+    except Exception as e:
+        logger.debug(f"Error closing db_manager connection: {e}")
+    return response
 
 # Підключаємо статичні файли
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -165,7 +185,6 @@ def fuzzy_find(query: str, items: List[Tuple[str, str]]) -> Optional[Tuple[str, 
         return name, exe, float(score)
         
     return None
-    return name, exe, float(score)
 
 def launch_path(exe_path: str) -> Tuple[bool, str]:
     """
@@ -268,111 +287,195 @@ INTENT_MAP = {
     "weather_now": ["погода", "температура"],
     "weather_forecast": ["прогноз"],
     "screenshot": ["скріншот", "знімок", "screenshot", "зроби фото", "сфоткай"],
-    "describe_screen": ["опиши екран", "що бачиш", "describe screen", "аналізуй екран"],
+    "describe_screen": ["опиши екран", "що бачиш", "describe screen", "аналізуй екран", "що на екрані"],
     "find_element": ["знайди на екрані", "де знаходиться", "find element", "шукай елемент"],
-    "detect_errors": ["є помилки", "перевір помилки", "check errors", "помилки на екрані"]
+    "detect_errors": ["є помилки", "перевір помилки", "check errors", "помилки на екрані"],
+    "read_text": ["прочитай текст", "що написано", "read text", "ocr", "розпізнай текст"]
 }
 
 PC_SYNONYMS = ["комп'ютер", "комп", "пк", "pc", "ноутбук"]
 
-def handle_intent(text: str, source: str = "voice") -> Optional[Dict]:
+def save_response_to_context(session_id: str, response_text: str):
+    """Зберігає відповідь системи в контекст"""
+    if CONTEXT_ENABLED:
+        try:
+            from context_manager import context_manager
+            context_manager.add_message(session_id, "assistant", response_text)
+        except Exception as e:
+            logger.debug(f"Failed to save response to context: {e}")
+
+def handle_intent(text: str, source: str = "voice", user_id: str = "default") -> Optional[Dict]:
     start_time = time.time()
-    tl = normalize_aliases(text)
-    if not tl: return None
-    words = tl.split()
 
-    # --- НОВА ЛОГІКА: ШУКАЄМО НАЙКРАЩИЙ ЗБІГ ---
-    best_score = 0
-    verb_type = None
-    verb_idx = 0
+    if not text or not text.strip():
+        return None
 
-    # Перевіряємо перші 3 слова
-    for i, w in enumerate(words[:3]):
-        # Порівнюємо кожне слово з усіма можливими командами
-        for intent_name, keywords in INTENT_MAP.items():
-            match = process.extractOne(w, keywords, scorer=fuzz.QRatio)
-            if match:
-                _, score, _ = match
-                # Якщо знайшли команду з вищою точністю — запам'ятовуємо її
-                # Це вирішує проблему, коли "Вимкни" (100%) перемагає "Увімкні" (85%)
-                if score > 75 and score > best_score:
-                    best_score = score
-                    verb_type = intent_name
-                    verb_idx = i
+    # Отримуємо або створюємо сесію для користувача
+    if CONTEXT_ENABLED:
+        from context_manager import context_manager
+        session = context_manager.get_active_session(user_id)
+        session_id = session.session_id
+    else:
+        session_id = f"session_{user_id}"
 
-    logger.info(f"🔍 Intent Analysis: Type='{verb_type}' (Score: {best_score})")
+    # === HYBRID NLU АНАЛІЗ ===
+    if NLU_ENABLED:
+        # Використовуємо новий NLU engine з session_id для контексту
+        nlu_result = nlu_engine.analyze(text, session_id=session_id, context={
+            "source": source,
+            "user_id": user_id,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        verb_type = nlu_result.intent
+        entities = nlu_result.entities
+        confidence = nlu_result.confidence
+        arg = entities.get("query", "")
+
+        logger.info(
+            f"🔍 NLU: intent={verb_type}, confidence={confidence:.2f}, "
+            f"method={nlu_result.method}, entities={entities}"
+        )
+
+        # Зберігаємо команду в контекст
+        if CONTEXT_ENABLED:
+            context_manager.add_message(
+                session_id, "user", text,
+                intent=verb_type, entities=entities, confidence=confidence
+            )
+
+        # Якщо низька впевненість -> fallback на AI
+        if confidence < 0.5 or verb_type == "unknown":
+            logger.info(f"🤔 Low confidence ({confidence:.2f}). Asking AI Brain...")
+            ai_response = brain.ask(text)
+
+            # Зберігаємо відповідь AI
+            if CONTEXT_ENABLED:
+                context_manager.add_message(session_id, "assistant", ai_response)
+
+            return {"ok": True, "text": ai_response, "details": {"source": "ai_brain"}}
+
+    else:
+        # Fallback на стару логіку якщо NLU недоступний
+        tl = normalize_aliases(text)
+        if not tl: return None
+        words = tl.split()
+
+        best_score = 0
+        verb_type = None
+        verb_idx = 0
+
+        for i, w in enumerate(words[:3]):
+            for intent_name, keywords in INTENT_MAP.items():
+                match = process.extractOne(w, keywords, scorer=fuzz.QRatio)
+                if match:
+                    _, score, _ = match
+                    if score > 75 and score > best_score:
+                        best_score = score
+                        verb_type = intent_name
+                        verb_idx = i
+
+        logger.info(f"🔍 Intent Analysis (fallback): Type='{verb_type}' (Score: {best_score})")
+
+        items = load_apps()
+
+        if verb_type is None:
+            fz = fuzzy_find(tl, items)
+            if fz and fz[2] > 88:
+                ok, msg = launch_path(fz[1])
+                return {"ok": ok, "text": msg, "details": {"name": fz[0]}}
+            logger.info(f"🤔 Unknown command '{text}'. Asking AI Brain...")
+            ai_response = brain.ask(text)
+            return {"ok": True, "text": ai_response, "details": {"source": "ai_brain"}}
+
+        arg = " ".join(words[verb_idx + 1:]).strip()
+        entities = {}  # Порожні entities для fallback режиму
 
     items = load_apps()
 
-    # Якщо команди немає -> AI або Fuzzy Launch
-    if verb_type is None:
-        fz = fuzzy_find(tl, items)
-        if fz and fz[2] > 88:
-            ok, msg = launch_path(fz[1])
-            return {"ok": ok, "text": msg, "details": {"name": fz[0]}} 
-        logger.info(f"🤔 Unknown command '{text}'. Asking AI Brain...")
-        ai_response = brain.ask(text)
-        return {"ok": True, "text": ai_response, "details": {"source": "ai_brain"}}
-
-    arg = " ".join(words[verb_idx + 1:]).strip()
-
     # СИСТЕМНІ
     if verb_type == "vol_set":
-        lvl = extract_number(arg, -1)
-        return {"ok": True, "text": sys_ctrl.set_volume(lvl) if lvl >= 0 else "На скільки?"}
-    if verb_type == "vol_up": return {"ok": True, "text": sys_ctrl.change_volume(10)}
-    if verb_type == "vol_down": return {"ok": True, "text": sys_ctrl.change_volume(-10)}
-    if verb_type == "mute": return {"ok": True, "text": sys_ctrl.mute_toggle()}
-    if verb_type == "pc_off": return {"ok": True, "text": sys_ctrl.pc_shutdown()}
-    if verb_type == "pc_cancel": return {"ok": True, "text": sys_ctrl.pc_cancel_shutdown()}
+        lvl = entities.get("volume", -1)
+        response_text = sys_ctrl.set_volume(lvl) if lvl >= 0 else "На скільки?"
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
+
+    if verb_type == "vol_up":
+        response_text = sys_ctrl.change_volume(10)
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
+
+    if verb_type == "vol_down":
+        response_text = sys_ctrl.change_volume(-10)
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
+
+    if verb_type == "mute":
+        response_text = sys_ctrl.mute_toggle()
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
+
+    if verb_type == "pc_off":
+        response_text = sys_ctrl.pc_shutdown()
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
+
+    if verb_type == "pc_cancel":
+        response_text = sys_ctrl.pc_cancel_shutdown()
+        save_response_to_context(session_id, response_text)
+        return {"ok": True, "text": response_text}
 
     # РОЗУМНИЙ ДІМ
     if verb_type in ["control_on", "control_off"]:
-        action = "on" if verb_type == "control_on" else "off"
+        action = entities.get("action", "on" if verb_type == "control_on" else "off")
+        device = entities.get("device", "")
+
         # Захист від випадкового вимкнення ПК
-        if action == "off" and best_score > 90 and any(fuzz.QRatio(arg, pc) > 80 for pc in PC_SYNONYMS):
-             return {"ok": True, "text": sys_ctrl.pc_shutdown()}
-        
-        msg = home.control(arg, action)
+        if action == "off" and any(fuzz.QRatio(device, pc) > 80 for pc in PC_SYNONYMS):
+            response_text = sys_ctrl.pc_shutdown()
+            save_response_to_context(session_id, response_text)
+            return {"ok": True, "text": response_text}
+
+        msg = home.control(device, action)
+        save_response_to_context(session_id, msg)
         return {"ok": True, "text": msg, "details": {"source": "smart_home"}}
 
     # ЗАПУСК ПРОГРАМ
     if verb_type == "run":
-        target = arg if arg else tl
-        if target in APP_ALIASES_MAP:
-            exact = get_exe_by_canonical(target)
-            if exact:
-                ok, msg = launch_path(exact[1])
-                return {"ok": ok, "text": msg}
-        
-        if items:
-            fz = fuzzy_find(target, items)
-            if fz:
-                name, exe, score = fz
-                logger.info(f"🎯 Fuzzy match: {target} -> {name} ({score}%)")
-                ok, msg = launch_path(exe)
-                return {"ok": ok, "text": f"{msg} ({name})"}
-        
+        app_name = entities.get("app")
+
+        if app_name:
+            # Спочатку перевіряємо точний збіг
+            if app_name in APP_ALIASES_MAP:
+                exact = get_exe_by_canonical(app_name)
+                if exact:
+                    ok, msg = launch_path(exact[1])
+                    return {"ok": ok, "text": msg}
+
+            # Fuzzy matching з БД
+            if items:
+                fz = fuzzy_find(app_name, items)
+                if fz:
+                    name, exe, score = fz
+                    logger.info(f"🎯 Fuzzy match: {app_name} -> {name} ({score}%)")
+                    ok, msg = launch_path(exe)
+                    return {"ok": ok, "text": f"{msg} ({name})"}
+
+        # Fallback на AI
         ai_ans = brain.ask(text)
         return {"ok": True, "text": ai_ans}
 
-    # ПОШУК ТА ПОГОДА
+    # ПОШУК
     if verb_type == "find":
-        q = cleanup_search_query(arg or tl)
+        query = entities.get("query", text)
+        q = cleanup_search_query(query)
         webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote_plus(q)}")
         return {"ok": True, "text": f"Шукаю: {q}"}
 
+    # ПОГОДА
     if verb_type in ["weather_now", "weather_forecast"]:
-        is_future = verb_type == "weather_forecast" or "завтра" in arg
-        city = None
-        stop_words = ["погода", "прогноз", "температура", "скажи", "яка", "у", "в", "на", "завтра"]
-        for word in arg.split():
-            clean = word.lower().strip()
-            if clean in stop_words or clean.isdigit(): continue
-            parsed = morph.parse(clean)[0]
-            if 'NOUN' in parsed.tag:
-                city = parsed.normal_form.capitalize()
-                break
+        city = entities.get("city")
+        is_future = entities.get("when") == "forecast" or verb_type == "weather_forecast"
         report = weather.get_forecast(city) if is_future else weather.get_weather(city)
         return {"ok": True, "text": report, "details": {"source": "weather"}}
 
@@ -426,6 +529,21 @@ def handle_intent(text: str, source: str = "voice") -> Optional[Dict]:
         else:
             return {"ok": False, "text": "Vision система не активна"}
 
+    if verb_type == "read_text":
+        if VISION_ENABLED:
+            from vision_module import vision
+            screenshot_path = vision.capture_screenshot()
+            if screenshot_path:
+                ocr_text = vision.extract_text_ocr(screenshot_path)
+                if ocr_text:
+                    return {"ok": True, "text": f"Розпізнаний текст: {ocr_text}"}
+                else:
+                    return {"ok": False, "text": "Текст не знайдено на екрані"}
+            else:
+                return {"ok": False, "text": "Не вдалося зробити скріншот"}
+        else:
+            return {"ok": False, "text": "Vision система не активна"}
+
     # Track metrics if learning enabled
     duration_ms = (time.time() - start_time) * 1000
     if LEARNING_ENABLED:
@@ -440,6 +558,12 @@ def handle_intent(text: str, source: str = "voice") -> Optional[Dict]:
             ))
         except Exception as e:
             logger.error(f"Failed to track metric: {e}")
+
+    # Зберігаємо невідому команду в контекст
+    if CONTEXT_ENABLED and NLU_ENABLED:
+        context_manager.add_message(
+            session_id, "assistant", "Не зрозумів команду"
+        )
 
     return None
 

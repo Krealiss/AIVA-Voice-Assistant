@@ -141,13 +141,60 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif msg_type == "command":
                     # Клієнт відправляє команду
                     command = message.get("command")
-                    # TODO: Виконати команду через handle_intent
-                    await manager.broadcast_command(
-                        command=command,
-                        response="Command received",
-                        source="web",
-                        success=True
-                    )
+
+                    # Виконуємо команду через handle_intent
+                    try:
+                        from agent_main import handle_intent
+                        import time
+
+                        start = time.time()
+                        result = handle_intent(command, source="websocket")
+                        duration = (time.time() - start) * 1000
+
+                        if result:
+                            response_text = result.get("text", "")
+                            success = result.get("ok", False)
+                        else:
+                            response_text = "No response"
+                            success = False
+
+                        # Broadcast результат
+                        await manager.broadcast_command(
+                            command=command,
+                            response=response_text,
+                            source="websocket",
+                            success=success
+                        )
+
+                        # Відправляємо детальну відповідь клієнту
+                        await manager.send_personal_message({
+                            "type": "command_result",
+                            "command": command,
+                            "response": response_text,
+                            "success": success,
+                            "duration_ms": duration,
+                            "timestamp": datetime.now().isoformat()
+                        }, websocket)
+
+                    except ImportError:
+                        # Fallback якщо handle_intent недоступний
+                        logger.warning("handle_intent not available, using fallback")
+                        await manager.send_personal_message({
+                            "type": "command_result",
+                            "command": command,
+                            "response": "Command execution not available",
+                            "success": False,
+                            "error": "handle_intent not imported"
+                        }, websocket)
+                    except Exception as e:
+                        logger.error(f"Command execution error: {e}")
+                        await manager.send_personal_message({
+                            "type": "command_result",
+                            "command": command,
+                            "response": f"Error: {str(e)}",
+                            "success": False,
+                            "error": str(e)
+                        }, websocket)
 
             except json.JSONDecodeError:
                 logger.error(f"Invalid JSON received: {data}")

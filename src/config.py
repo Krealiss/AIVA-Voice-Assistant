@@ -26,9 +26,9 @@ LOG_LEVEL = env("LOG_LEVEL", "INFO")
 OLLAMA_HOST = env("OLLAMA_HOST", "http://127.0.0.1:11434")
 
 # ---------- Перевірка ----------
-if not BOT_TOKEN or ":" not in BOT_TOKEN:
+if BOT_TOKEN and ":" not in BOT_TOKEN:
     raise RuntimeError(
-        "❌ BOT_TOKEN не знайдено або некоректний. "
+        "❌ BOT_TOKEN некоректний (відсутній символ ':')."
         "Перевір .env (UTF-8 без BOM) і правильність значення."
     )
 

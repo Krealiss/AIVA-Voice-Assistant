@@ -1,0 +1,12 @@
+{
+  "test_key": "test_value",
+  "vision_quality": 90,
+  "cache_enabled": true,
+  "cache_ttl": 300,
+  "debug_mode": true,
+  "ollama_model": "llava:latest",
+  "test_integration": "success",
+  "vision_cache_ttl": 600,
+  "analytics_enabled": true,
+  "log_level": "DEBUG"
+}

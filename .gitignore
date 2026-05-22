@@ -29,8 +29,19 @@ wheels/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+
+# Vosk model (large binary)
+model_vosk/
+
+# Claude Code internal
+.claude/
+
+# Screenshots & temp data
+data/screenshots/
 
 # IDE
 .vscode/

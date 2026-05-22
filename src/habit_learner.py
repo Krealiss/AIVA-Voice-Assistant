@@ -48,54 +48,53 @@ class HabitLearner:
 
     def _init_db(self):
         """Ініціалізація БД для звичок"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL")
 
-        # Таблиця звичок
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS habits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                habit_type TEXT NOT NULL,
-                description TEXT NOT NULL,
-                trigger_condition TEXT NOT NULL,
-                suggested_action TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                times_observed INTEGER DEFAULT 0,
-                times_accepted INTEGER DEFAULT 0,
-                times_rejected INTEGER DEFAULT 0,
-                last_triggered TEXT,
-                created_at TEXT NOT NULL,
-                active INTEGER DEFAULT 1
-            )
-        """)
+            # Таблиця звичок
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    habit_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    trigger_condition TEXT NOT NULL,
+                    suggested_action TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    times_observed INTEGER DEFAULT 0,
+                    times_accepted INTEGER DEFAULT 0,
+                    times_rejected INTEGER DEFAULT 0,
+                    last_triggered TEXT,
+                    created_at TEXT NOT NULL,
+                    active INTEGER DEFAULT 1
+                )
+            """)
 
-        # Таблиця вподобань
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS preferences (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                preference_type TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                learned_from INTEGER NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(preference_type, key)
-            )
-        """)
+            # Таблиця вподобань
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    preference_type TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    learned_from INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(preference_type, key)
+                )
+            """)
 
-        # Таблиця історії взаємодій зі звичками
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS habit_interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                habit_id INTEGER NOT NULL,
-                action TEXT NOT NULL,  -- "accepted", "rejected", "ignored"
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY (habit_id) REFERENCES habits(id)
-            )
-        """)
+            # Таблиця історії взаємодій зі звичками
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS habit_interactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    habit_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,  -- "accepted", "rejected", "ignored"
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (habit_id) REFERENCES habits(id)
+                )
+            """)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
         logger.info("Habit Learner DB initialized")
 
     def learn_from_analytics(self):
@@ -103,19 +102,17 @@ class HabitLearner:
         logger.info("Learning from analytics data...")
 
         # Підключаємося до analytics DB
-        conn = sqlite3.connect(self.analytics_db)
-        cur = conn.cursor()
+        with sqlite3.connect(self.analytics_db) as conn:
+            cur = conn.cursor()
 
-        # Отримуємо дані за останні 14 днів
-        since = (datetime.now() - timedelta(days=14)).isoformat()
-        rows = cur.execute("""
-            SELECT command, intent_type, timestamp, source
-            FROM command_metrics
-            WHERE timestamp > ? AND success = 1
-            ORDER BY timestamp
-        """, (since,)).fetchall()
-
-        conn.close()
+            # Отримуємо дані за останні 14 днів
+            since = (datetime.now() - timedelta(days=14)).isoformat()
+            rows = cur.execute("""
+                SELECT command, intent_type, timestamp, source
+                FROM command_metrics
+                WHERE timestamp > ? AND success = 1
+                ORDER BY timestamp
+            """, (since,)).fetchall()
 
         if len(rows) < 5:
             logger.info("Not enough data for learning")
@@ -241,18 +238,16 @@ class HabitLearner:
 
     def _find_habit(self, habit_type: str, trigger: Dict) -> Optional[Habit]:
         """Знайти існуючу звичку"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT id, habit_type, description, trigger_condition, suggested_action,
-                   confidence, times_observed, times_accepted, times_rejected,
-                   last_triggered, created_at, active
-            FROM habits
-            WHERE habit_type = ? AND active = 1
-        """, (habit_type,)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT id, habit_type, description, trigger_condition, suggested_action,
+                       confidence, times_observed, times_accepted, times_rejected,
+                       last_triggered, created_at, active
+                FROM habits
+                WHERE habit_type = ? AND active = 1
+            """, (habit_type,)).fetchall()
 
         for row in rows:
             stored_trigger = json.loads(row[3])
@@ -276,89 +271,82 @@ class HabitLearner:
 
     def _save_habit(self, habit: Habit):
         """Зберегти нову звичку"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT INTO habits
-            (habit_type, description, trigger_condition, suggested_action,
-             confidence, times_observed, times_accepted, times_rejected,
-             last_triggered, created_at, active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            habit.habit_type,
-            habit.description,
-            json.dumps(habit.trigger_condition),
-            habit.suggested_action,
-            habit.confidence,
-            habit.times_observed,
-            habit.times_accepted,
-            habit.times_rejected,
-            habit.last_triggered.isoformat() if habit.last_triggered else None,
-            habit.created_at.isoformat(),
-            1 if habit.active else 0
-        ))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO habits
+                (habit_type, description, trigger_condition, suggested_action,
+                 confidence, times_observed, times_accepted, times_rejected,
+                 last_triggered, created_at, active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                habit.habit_type,
+                habit.description,
+                json.dumps(habit.trigger_condition),
+                habit.suggested_action,
+                habit.confidence,
+                habit.times_observed,
+                habit.times_accepted,
+                habit.times_rejected,
+                habit.last_triggered.isoformat() if habit.last_triggered else None,
+                habit.created_at.isoformat(),
+                1 if habit.active else 0
+            ))
+            conn.commit()
         logger.info(f"Saved new habit: {habit.description}")
 
     def _update_habit_confidence(self, habit_id: int, new_observations: int):
         """Оновити впевненість у звичці"""
-        conn = sqlite3.connect(self.db_path)
+        with sqlite3.connect(self.db_path) as conn:
+            # Отримуємо поточні дані
+            row = conn.execute(
+                "SELECT times_observed, confidence FROM habits WHERE id = ?",
+                (habit_id,)
+            ).fetchone()
 
-        # Отримуємо поточні дані
-        row = conn.execute(
-            "SELECT times_observed, confidence FROM habits WHERE id = ?",
-            (habit_id,)
-        ).fetchone()
+            if row:
+                old_obs, old_conf = row
+                new_total = old_obs + new_observations
+                # Збільшуємо впевненість, але не більше 0.95
+                new_conf = min(old_conf + 0.05, 0.95)
 
-        if row:
-            old_obs, old_conf = row
-            new_total = old_obs + new_observations
-            # Збільшуємо впевненість, але не більше 0.95
-            new_conf = min(old_conf + 0.05, 0.95)
+                conn.execute("""
+                    UPDATE habits
+                    SET times_observed = ?, confidence = ?
+                    WHERE id = ?
+                """, (new_total, new_conf, habit_id))
 
-            conn.execute("""
-                UPDATE habits
-                SET times_observed = ?, confidence = ?
-                WHERE id = ?
-            """, (new_total, new_conf, habit_id))
-
-            conn.commit()
-
-        conn.close()
+                conn.commit()
 
     def _save_preference(self, pref: UserPreference):
         """Зберегти вподобання"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            INSERT OR REPLACE INTO preferences
-            (preference_type, key, value, confidence, learned_from, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            pref.preference_type,
-            pref.key,
-            pref.value,
-            pref.confidence,
-            pref.learned_from,
-            datetime.now().isoformat()
-        ))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO preferences
+                (preference_type, key, value, confidence, learned_from, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                pref.preference_type,
+                pref.key,
+                pref.value,
+                pref.confidence,
+                pref.learned_from,
+                datetime.now().isoformat()
+            ))
+            conn.commit()
 
     def get_active_habits(self, min_confidence: float = 0.5) -> List[Habit]:
         """Отримати активні звички з достатньою впевненістю"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        rows = cur.execute("""
-            SELECT id, habit_type, description, trigger_condition, suggested_action,
-                   confidence, times_observed, times_accepted, times_rejected,
-                   last_triggered, created_at, active
-            FROM habits
-            WHERE active = 1 AND confidence >= ?
-            ORDER BY confidence DESC
-        """, (min_confidence,)).fetchall()
-
-        conn.close()
+            rows = cur.execute("""
+                SELECT id, habit_type, description, trigger_condition, suggested_action,
+                       confidence, times_observed, times_accepted, times_rejected,
+                       last_triggered, created_at, active
+                FROM habits
+                WHERE active = 1 AND confidence >= ?
+                ORDER BY confidence DESC
+            """, (min_confidence,)).fetchall()
 
         habits = []
         for row in rows:
@@ -407,65 +395,61 @@ class HabitLearner:
 
     def record_interaction(self, habit_id: int, action: str):
         """Записати взаємодію зі звичкою (accepted/rejected/ignored)"""
-        conn = sqlite3.connect(self.db_path)
-
-        # Записуємо взаємодію
-        conn.execute("""
-            INSERT INTO habit_interactions (habit_id, action, timestamp)
-            VALUES (?, ?, ?)
-        """, (habit_id, action, datetime.now().isoformat()))
-
-        # Оновлюємо лічильники
-        if action == "accepted":
+        with sqlite3.connect(self.db_path) as conn:
+            # Записуємо взаємодію
             conn.execute("""
-                UPDATE habits
-                SET times_accepted = times_accepted + 1,
-                    last_triggered = ?,
-                    confidence = MIN(confidence + 0.05, 0.98)
-                WHERE id = ?
-            """, (datetime.now().isoformat(), habit_id))
+                INSERT INTO habit_interactions (habit_id, action, timestamp)
+                VALUES (?, ?, ?)
+            """, (habit_id, action, datetime.now().isoformat()))
 
-        elif action == "rejected":
-            conn.execute("""
-                UPDATE habits
-                SET times_rejected = times_rejected + 1,
-                    confidence = MAX(confidence - 0.1, 0.1)
-                WHERE id = ?
-            """, (habit_id,))
+            # Оновлюємо лічильники
+            if action == "accepted":
+                conn.execute("""
+                    UPDATE habits
+                    SET times_accepted = times_accepted + 1,
+                        last_triggered = ?,
+                        confidence = MIN(confidence + 0.05, 0.98)
+                    WHERE id = ?
+                """, (datetime.now().isoformat(), habit_id))
 
-            # Якщо відхилено 3+ рази - деактивуємо
-            row = conn.execute(
-                "SELECT times_rejected FROM habits WHERE id = ?",
-                (habit_id,)
-            ).fetchone()
+            elif action == "rejected":
+                conn.execute("""
+                    UPDATE habits
+                    SET times_rejected = times_rejected + 1,
+                        confidence = MAX(confidence - 0.1, 0.1)
+                    WHERE id = ?
+                """, (habit_id,))
 
-            if row and row[0] >= 3:
-                conn.execute("UPDATE habits SET active = 0 WHERE id = ?", (habit_id,))
-                logger.info(f"Deactivated habit {habit_id} due to rejections")
+                # Якщо відхилено 3+ рази - деактивуємо
+                row = conn.execute(
+                    "SELECT times_rejected FROM habits WHERE id = ?",
+                    (habit_id,)
+                ).fetchone()
 
-        conn.commit()
-        conn.close()
+                if row and row[0] >= 3:
+                    conn.execute("UPDATE habits SET active = 0 WHERE id = ?", (habit_id,))
+                    logger.info(f"Deactivated habit {habit_id} due to rejections")
+
+            conn.commit()
 
     def get_preferences(self, preference_type: Optional[str] = None) -> List[UserPreference]:
         """Отримати вподобання користувача"""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.cursor()
 
-        if preference_type:
-            rows = cur.execute("""
-                SELECT preference_type, key, value, confidence, learned_from
-                FROM preferences
-                WHERE preference_type = ?
-                ORDER BY confidence DESC
-            """, (preference_type,)).fetchall()
-        else:
-            rows = cur.execute("""
-                SELECT preference_type, key, value, confidence, learned_from
-                FROM preferences
-                ORDER BY confidence DESC
-            """).fetchall()
-
-        conn.close()
+            if preference_type:
+                rows = cur.execute("""
+                    SELECT preference_type, key, value, confidence, learned_from
+                    FROM preferences
+                    WHERE preference_type = ?
+                    ORDER BY confidence DESC
+                """, (preference_type,)).fetchall()
+            else:
+                rows = cur.execute("""
+                    SELECT preference_type, key, value, confidence, learned_from
+                    FROM preferences
+                    ORDER BY confidence DESC
+                """).fetchall()
 
         return [
             UserPreference(
