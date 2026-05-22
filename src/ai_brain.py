@@ -16,6 +16,7 @@ import config
 import locale
 from utils import retry, ErrorHandler
 from context_manager import context_manager, Message
+from ollama_manager import ollama_manager
 
 logger = logging.getLogger("ai_brain")
 
@@ -33,7 +34,8 @@ class AIBrain:
     def __init__(self) -> None:
         self.host = config.OLLAMA_HOST
         self.url = f"{self.host}/api/chat"
-        self.model = "llama3.2"
+        self.preferred_model = "llama3.2"
+        self.model = self.preferred_model
 
         self.history = []
         self.max_history = 15
@@ -47,14 +49,30 @@ class AIBrain:
         self._response_cache = {}
         self._cache_max_size = 100
 
+        # Авто-запуск Ollama при ініціалізації (нон-блокуючий)
+        self._ollama_ready = ollama_manager.is_running()
+        if self._ollama_ready:
+            actual = ollama_manager.best_available_model(self.preferred_model)
+            if actual:
+                self.model = actual
+                logger.info(f"Ollama готовий, модель: {self.model}")
+            else:
+                logger.warning(
+                    f"Ollama запущено, але модель '{self.preferred_model}' не знайдено. "
+                    f"Виконай: ollama pull {self.preferred_model}"
+                )
+                self._ollama_ready = False
+        else:
+            logger.warning("Ollama не запущено. Спроба авто-запуску при першому запиті.")
+
         self.system_prompt = (
-            "Ти — AIVA, просунутий асистент на базі ШІ. Твій розробник — студент 4-го курсу Computer Science. "
-            "Ти допомагаєш із розробкою, написанням коду на Python та навчанням. "
-            "Твоя мета — бути точною, лаконічною та професійною. "
-            "Стиль спілкування: дружній, але технічно грамотний. "
-            "Якщо питання стосується коду — давай приклад. "
-            "Якщо тобі надали [Дані з Інтернету], використовуй їх для актуалізації знань. "
-            "Пам'ятай: ти працюєш локально на ПК."
+            "Ти — AIVA, голосовий асистент для Windows. "
+            "Відповідай ЗАВЖДИ українською мовою. "
+            "Відповідай коротко і по суті — максимум 2-3 речення для голосового інтерфейсу. "
+            "Пристрої розумного дому: лампочка (bulb), розетка (plug). "
+            "Якщо питання стосується коду — давай короткий приклад. "
+            "Якщо надано [Дані з Інтернету] — використовуй їх. "
+            "Ти працюєш локально на ПК користувача."
         )
 
     def _get_cache_key(self, text: str) -> str:
@@ -135,9 +153,31 @@ class AIBrain:
 
         return any(t in text_lower for t in info_triggers)
 
-    @retry(max_attempts=3, delay=1.0, exceptions=(requests.RequestException,))
+    def _ensure_ollama(self) -> bool:
+        """Перевіряє і за потреби запускає Ollama. Повертає True якщо готовий."""
+        if self._ollama_ready:
+            return True
+        if ollama_manager.ensure_running():
+            actual = ollama_manager.best_available_model(self.preferred_model)
+            if actual:
+                self.model = actual
+                self._ollama_ready = True
+                logger.info(f"Ollama готовий після авто-запуску, модель: {self.model}")
+                return True
+            else:
+                logger.warning(f"Модель не знайдена. Виконай: ollama pull {self.preferred_model}")
+        return False
+
+    @retry(max_attempts=2, delay=1.0, exceptions=(requests.RequestException,))
     def ask(self, user_text: str, user_id: str = "default", session_id: Optional[str] = None) -> str:
         if not user_text: return ""
+
+        # Авто-запуск Ollama якщо потрібно
+        if not self._ensure_ollama():
+            return (
+                f"AI недоступний — Ollama не запущено або модель '{self.preferred_model}' "
+                f"не завантажена. Виконай: ollama pull {self.preferred_model}"
+            )
 
         # Перевірка кешу для простих запитів
         cache_key = self._get_cache_key(user_text)

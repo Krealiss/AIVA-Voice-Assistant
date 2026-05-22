@@ -127,6 +127,19 @@ class LLMClassifier:
         # Список доступних інтенцій для промпту
         self.available_intents = list(INTENT_MAP.keys())
 
+        # Перевіряємо Ollama без блокування (lazy — при першому реальному запиті)
+        self._available: Optional[bool] = None
+
+    def _check_available(self) -> bool:
+        """Lazy перевірка доступності Ollama."""
+        if self._available is None:
+            try:
+                r = requests.get(f"{self.ollama_host}/api/tags", timeout=1)
+                self._available = r.status_code == 200
+            except Exception:
+                self._available = False
+        return self._available
+
     def classify(self, text: str, context: Optional[Dict] = None) -> IntentResult:
         """
         Класифікує команду використовуючи LLM
@@ -157,6 +170,9 @@ class LLMClassifier:
             }
         }
 
+        if not self._check_available():
+            return self._fallback_result(text)
+
         try:
             start_time = time.time()
             response = self.session.post(self.url, json=payload, timeout=30)
@@ -176,6 +192,7 @@ class LLMClassifier:
 
         except requests.RequestException as e:
             logger.error(f"LLM connection failed: {e}")
+            self._available = None  # скидаємо — перевіримо знову при наступному запиті
             return self._fallback_result(text)
         except Exception as e:
             logger.error(f"LLM classification error: {e}")
