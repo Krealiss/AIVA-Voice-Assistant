@@ -7,6 +7,7 @@ import LearningPanel from './components/LearningPanel'
 import VisionPanel from './components/VisionPanel'
 import HistoryPanel from './components/HistoryPanel'
 import ContextPanel from './components/ContextPanel'
+import MacroPanel from './components/MacroPanel'
 
 function App() {
   const { activeTab, connectWebSocket, fetchStats, fetchHistory, fetchLearningData, fetchSession, fetchUserProfile } = useStore()
@@ -44,6 +45,7 @@ function App() {
             {activeTab === 'vision' && <VisionPanel />}
             {activeTab === 'history' && <HistoryPanel />}
             {activeTab === 'context' && <ContextPanel />}
+            {activeTab === 'macros' && <MacroPanel />}
           </div>
 
           {/* Sidebar */}

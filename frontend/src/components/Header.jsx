@@ -1,5 +1,5 @@
 import { useStore } from '../store'
-import { Activity, Brain, Eye, History, MessageSquare, Wifi, WifiOff } from 'lucide-react'
+import { Activity, Brain, Eye, History, MessageSquare, Wifi, WifiOff, Zap } from 'lucide-react'
 
 export default function Header() {
   const { activeTab, setActiveTab, connected } = useStore()
@@ -10,6 +10,7 @@ export default function Header() {
     { id: 'learning', label: 'Learning', icon: Brain },
     { id: 'vision', label: 'Vision', icon: Eye },
     { id: 'history', label: 'History', icon: History },
+    { id: 'macros', label: 'Macros', icon: Zap },
   ]
 
   return (

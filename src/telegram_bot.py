@@ -33,9 +33,10 @@ def menu_main():
     """Головне меню"""
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn_devices = telebot.types.KeyboardButton("📱 Керування пристроями")
+    btn_macros = telebot.types.KeyboardButton("⚡ Макроси")
     btn_rescan = telebot.types.KeyboardButton("/rescan")
     btn_help = telebot.types.KeyboardButton("/help")
-    markup.add(btn_devices)
+    markup.add(btn_devices, btn_macros)
     markup.add(btn_rescan, btn_help)
     return markup
 
@@ -68,6 +69,45 @@ def menu_socket():
     markup.add(btn_on, btn_off)
     markup.add(btn_back)
     return markup
+
+# === Стан для діалогу створення макросу ===
+# { chat_id: {"step": "name"|"triggers"|"commands", "name": str, "triggers": str} }
+_macro_state: dict = {}
+
+
+def macros_list_message():
+    """Отримує список макросів і повертає текст + inline-клавіатуру."""
+    try:
+        res = requests.get(f"{AGENT_URL}/api/macros", timeout=10)
+        macros = res.json() if res.ok else []
+    except Exception:
+        return "⚠️ Не вдалося отримати список макросів.", None
+
+    if not macros:
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("➕ Новий макрос", callback_data="macro_new"))
+        return "📋 Макросів ще немає.", markup
+
+    text = "⚡ <b>Ваші макроси:</b>\n\n"
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    for m in macros:
+        cmd_count = len(m.get("commands", []))
+        uses = m.get("use_count", 0)
+        text += f"• <b>{html.escape(m['name'])}</b> — {cmd_count} команд"
+        if uses:
+            text += f", запущено {uses}×"
+        text += "\n"
+        btn_run = telebot.types.InlineKeyboardButton(
+            f"▶ {m['name']}", callback_data=f"macro_run_{m['id']}"
+        )
+        btn_del = telebot.types.InlineKeyboardButton(
+            "🗑", callback_data=f"macro_del_{m['id']}"
+        )
+        markup.add(btn_run, btn_del)
+
+    markup.add(telebot.types.InlineKeyboardButton("➕ Новий макрос", callback_data="macro_new"))
+    return text, markup
+
 
 # === Utilities ===
 
@@ -116,8 +156,21 @@ def cmd_start(message):
 
 @bot.message_handler(commands=["help"])
 def cmd_help(message):
-    text = "🎤 Голос або ⌨️ Текст.\nКоманди: /rescan, /run [програма]"
+    text = (
+        "🎤 Голос або ⌨️ Текст.\n"
+        "Команди: /rescan, /macros\n"
+        "/cancel — скасувати поточну дію"
+    )
     bot.reply_to(message, text)
+
+
+@bot.message_handler(commands=["cancel"])
+def cmd_cancel(message):
+    if message.chat.id in _macro_state:
+        del _macro_state[message.chat.id]
+        bot.reply_to(message, "❌ Скасовано.", reply_markup=menu_main())
+    else:
+        bot.reply_to(message, "Нічого скасовувати.", reply_markup=menu_main())
 
 @bot.message_handler(commands=["rescan"])
 def cmd_rescan(message):
@@ -140,6 +193,71 @@ def cmd_rescan(message):
             
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {html.escape(str(e))}", parse_mode="HTML")
+
+@bot.message_handler(commands=["macros"])
+def cmd_macros(message):
+    text, markup = macros_list_message()
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("macro_"))
+def handle_macro_callback(call):
+    data = call.data
+
+    if data == "macro_new":
+        _macro_state[call.message.chat.id] = {"step": "name"}
+        bot.answer_callback_query(call.id)
+        bot.send_message(
+            call.message.chat.id,
+            "➕ <b>Новий макрос</b>\n\nВведіть <b>назву</b> макросу:",
+            parse_mode="HTML",
+        )
+        return
+
+    if data.startswith("macro_run_"):
+        macro_id = data[len("macro_run_"):]
+        bot.answer_callback_query(call.id, "⏳ Виконую...")
+        try:
+            res = requests.post(f"{AGENT_URL}/api/macros/{macro_id}/run", timeout=30)
+            d = res.json()
+            status = "✅" if d.get("ok") else "⚠️"
+            text = f"{status} <b>{html.escape(d.get('macro', ''))}</b>\n{html.escape(d.get('summary', ''))}"
+        except Exception as e:
+            text = f"❌ Помилка: {html.escape(str(e))}"
+        bot.send_message(call.message.chat.id, text, parse_mode="HTML")
+        return
+
+    if data.startswith("macro_del_"):
+        macro_id = data[len("macro_del_"):]
+        try:
+            res = requests.delete(f"{AGENT_URL}/api/macros/{macro_id}", timeout=10)
+            if res.ok:
+                bot.answer_callback_query(call.id, "Видалено")
+                text, markup = macros_list_message()
+                bot.edit_message_text(
+                    text, call.message.chat.id, call.message.message_id,
+                    parse_mode="HTML", reply_markup=markup
+                )
+            else:
+                bot.answer_callback_query(call.id, "⚠️ Помилка видалення")
+        except Exception:
+            bot.answer_callback_query(call.id, "❌ Немає зв'язку")
+        return
+
+    if data.startswith("macro_confirm_del_"):
+        macro_id = data[len("macro_confirm_del_"):]
+        try:
+            requests.delete(f"{AGENT_URL}/api/macros/{macro_id}", timeout=10)
+            bot.answer_callback_query(call.id, "Видалено ✅")
+            text, markup = macros_list_message()
+            bot.edit_message_text(
+                text, call.message.chat.id, call.message.message_id,
+                parse_mode="HTML", reply_markup=markup
+            )
+        except Exception:
+            bot.answer_callback_query(call.id, "❌ Помилка")
+        return
+
 
 @bot.message_handler(content_types=["voice", "audio"])
 def handle_voice(message):
@@ -185,9 +303,79 @@ def handle_voice(message):
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def handle_text(message):
     text_raw = message.text.strip()
-    
+    chat_id = message.chat.id
+
+    # --- 0. ДІАЛОГ СТВОРЕННЯ МАКРОСУ ---
+    if chat_id in _macro_state:
+        state = _macro_state[chat_id]
+        step = state["step"]
+
+        if step == "name":
+            if not text_raw:
+                bot.reply_to(message, "Назва не може бути порожньою.")
+                return
+            state["name"] = text_raw
+            state["step"] = "triggers"
+            bot.reply_to(
+                message,
+                "Введіть <b>тригери</b> (фрази що запускають макрос), через кому:\n"
+                "<i>Наприклад: робочий режим, почни роботу</i>",
+                parse_mode="HTML",
+            )
+            return
+
+        if step == "triggers":
+            triggers = [t.strip() for t in text_raw.split(",") if t.strip()]
+            if not triggers:
+                bot.reply_to(message, "Вкажіть хоча б один тригер.")
+                return
+            state["triggers"] = triggers
+            state["step"] = "commands"
+            bot.reply_to(
+                message,
+                "Введіть <b>команди</b> (кожна з нового рядка):\n"
+                "<i>Наприклад:\nвідкрий chrome\nгучність 40</i>",
+                parse_mode="HTML",
+            )
+            return
+
+        if step == "commands":
+            commands = [c.strip() for c in text_raw.split("\n") if c.strip()]
+            if not commands:
+                bot.reply_to(message, "Вкажіть хоча б одну команду.")
+                return
+
+            del _macro_state[chat_id]
+            try:
+                res = requests.post(
+                    f"{AGENT_URL}/api/macros",
+                    json={"name": state["name"], "triggers": state["triggers"], "commands": commands},
+                    timeout=10,
+                )
+                if res.ok:
+                    m = res.json().get("macro", {})
+                    bot.reply_to(
+                        message,
+                        f"✅ Макрос <b>{html.escape(m.get('name', state['name']))}</b> створено!\n"
+                        f"Тригери: {', '.join(state['triggers'])}\n"
+                        f"Команд: {len(commands)}",
+                        parse_mode="HTML",
+                        reply_markup=menu_main(),
+                    )
+                else:
+                    err = res.json().get("detail", "Невідома помилка")
+                    bot.reply_to(message, f"⚠️ {html.escape(err)}", reply_markup=menu_main())
+            except Exception as e:
+                bot.reply_to(message, f"❌ Помилка: {html.escape(str(e))}", reply_markup=menu_main())
+            return
+
     # --- 1. ЛОГІКА НАВІГАЦІЇ ПО МЕНЮ ---
-    
+
+    if text_raw == "⚡ Макроси":
+        text, markup = macros_list_message()
+        bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+        return
+
     if text_raw == "📱 Керування пристроями":
         bot.send_message(message.chat.id, "🎛 Оберіть пристрій:", reply_markup=menu_devices())
         return

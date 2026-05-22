@@ -96,6 +96,15 @@ except ImportError as e:
     logger.warning(f"NLU Engine not available: {e}")
     NLU_ENABLED = False
 
+# Macro system
+try:
+    from macro_manager import macro_manager
+    from macro_api import router as macro_router, _execute_macro
+    MACROS_ENABLED = True
+except ImportError as e:
+    logger.warning(f"Macro system not available: {e}")
+    MACROS_ENABLED = False
+
 DB_PATH = config.DB_PATH
 VERSION = "2.1.0 (Hybrid NLU Edition)"
 
@@ -144,6 +153,10 @@ if VISION_ENABLED:
 if CONTEXT_ENABLED:
     app.include_router(context_router)
     app.include_router(user_router)
+
+# Підключаємо macro API
+if MACROS_ENABLED:
+    app.include_router(macro_router)
 
 # === СИНОНІМИ (Додано нове) ===
 APP_ALIASES_MAP = {
@@ -309,6 +322,16 @@ def handle_intent(text: str, source: str = "voice", user_id: str = "default") ->
 
     if not text or not text.strip():
         return None
+
+    # === ПЕРЕВІРКА МАКРОСІВ ===
+    if MACROS_ENABLED:
+        macro = macro_manager.find_by_trigger(text)
+        if macro:
+            logger.info(f"🎬 Macro triggered: '{macro.name}'")
+            result = _execute_macro(macro)
+            speak(result["summary"])
+            return {"ok": result["ok"], "text": result["summary"],
+                    "details": {"source": "macro", "macro": macro.name}}
 
     # Отримуємо або створюємо сесію для користувача
     if CONTEXT_ENABLED:
