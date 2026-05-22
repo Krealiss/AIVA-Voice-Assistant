@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Play, Trash2, Plus, X, ChevronDown, ChevronUp, Zap } from 'lucide-react'
 
-const API = 'http://localhost:8787/api/macros'
+const API = 'http://localhost:8787/api/macros/'
 
 export default function MacroPanel() {
   const [macros, setMacros] = useState([])
@@ -29,7 +29,7 @@ export default function MacroPanel() {
     setRunningId(id)
     setRunResult(null)
     try {
-      const res = await fetch(`${API}/${id}/run`, { method: 'POST' })
+      const res = await fetch(`${API}${id}/run`, { method: 'POST' })
       const data = await res.json()
       setRunResult({ ok: data.ok, text: data.summary || 'Виконано', macro: data.macro })
       fetchMacros()
@@ -42,7 +42,7 @@ export default function MacroPanel() {
   async function deleteMacro(id, name) {
     if (!confirm(`Видалити макрос "${name}"?`)) return
     try {
-      await fetch(`${API}/${id}`, { method: 'DELETE' })
+      await fetch(`${API}${id}`, { method: 'DELETE' })
       setMacros(prev => prev.filter(m => m.id !== id))
       if (runResult?.macro === name) setRunResult(null)
     } catch (_) {}

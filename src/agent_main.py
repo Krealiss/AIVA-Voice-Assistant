@@ -23,6 +23,7 @@ import config
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -128,12 +129,19 @@ morph = pymorphy2.MorphAnalyzer(lang='uk')
 @app.middleware("http")
 async def close_db_connections(request, call_next):
     response = await call_next(request)
-    # Закриваємо з'єднання в db_manager
     try:
         db_manager.close()
     except Exception as e:
         logger.debug(f"Error closing db_manager connection: {e}")
     return response
+
+# CORS — додається після кастомного middleware, тому обробляється ПЕРШИМ
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Підключаємо статичні файли
 app.mount("/static", StaticFiles(directory="static"), name="static")
